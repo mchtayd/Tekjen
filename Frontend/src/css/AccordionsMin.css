@@ -1,0 +1,8 @@
+@media (max-width:600px){
+    .accordion {
+        width: 100%;
+    }
+}
+.menuItem:hover {
+    background-color: lightgrey;
+}

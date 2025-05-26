@@ -1,0 +1,32 @@
+.user {
+    margin-left: 5px;
+}
+.menuIcon {
+    display: none;
+}
+.minAccordionClose {
+    display: none;
+}
+.minAccordionSee {
+    display: block;
+}
+.logo {
+    cursor: pointer;
+}
+.accs {
+    width: 25%;
+}
+@media (max-width:600px){
+    .logo {
+        display: none;
+    }
+    .avatar {
+        margin-left: auto;
+    }
+    .userName {
+        display: none;
+    }
+    .menuIcon {
+        display: inline-block;
+    }
+}
