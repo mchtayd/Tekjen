@@ -29,7 +29,7 @@ export const AccordionsMin = () => {
           <Typography>Personel Kayıt</Typography>
         </AccordionSummary>
         <AccordionSummary className='menuItem'>
-          <Typography>Kayıtlı Personeller</Typography>
+          <Typography>Ayrılan Personeller</Typography>
         </AccordionSummary>
       </Accordion>
       <Accordion expanded={expanded==='panel2'} onChange={handleChange('panel2')}>

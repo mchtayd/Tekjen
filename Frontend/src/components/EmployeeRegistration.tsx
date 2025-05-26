@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useMemo } from 'react'
+import React, { useState, useEffect, useMemo, useRef } from 'react'
 import '../css/EmployeeRegistration.css'
 import { NavBar } from './NavBar'
 import { Accordions } from './Accordions'
@@ -18,13 +18,21 @@ import SaveOutlinedIcon from '@mui/icons-material/SaveOutlined'
 import EditNoteOutlinedIcon from '@mui/icons-material/EditNoteOutlined';
 import PersonRemoveAlt1Icon from '@mui/icons-material/PersonRemoveAlt1';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
+import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import type { MRT_RowSelectionState } from 'material-react-table'
 import * as XLSX from 'xlsx';
 import { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
 import axios from 'axios'
 import 'dayjs/locale/tr';
-import { useTheme, useMediaQuery, IconButton, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle } from '@mui/material';
+// import type { SelectChangeEvent } from '@mui/material/Select'
+import { useTheme, useMediaQuery, IconButton, Dialog, DialogActions, DialogContent, DialogContentText, DialogTitle,Table,
+  TableBody,
+  TableCell,
+  TableContainer,
+  TableHead,
+  TableRow,
+  Paper } from '@mui/material';
 import { MaterialReactTable, useMaterialReactTable,
   type MRT_ColumnDef,
 } from 'material-react-table'
@@ -71,6 +79,11 @@ const initialPersonel: Personel = {
   department: '',
   manager: '',
 }
+type UploadedDoc = {
+  id: number
+  type: string
+  file: File
+}
 
 export const EmployeeRegistration = () => {
   // form state & validation errors
@@ -85,6 +98,16 @@ export const EmployeeRegistration = () => {
   const [rowSelection, setRowSelection] = useState<MRT_RowSelectionState>({})
   const [isEditing, setIsEditing] = useState(false)
   const [editingId, setEditingId] = useState<number | null>(null)
+  const [fileError, setFileError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement>(null);
+  const [documentType, setDocumentType] = useState<string>('');
+  const [documentError, setDocumentError] = useState(false);
+  const [selectedFile, setSelectedFile] = useState<File | null>(null);
+
+  const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([])
+
+  //Başladııııığ
+
   // const [initialRowId, setInitialRowId] = useState<string | null>(null)
   // veri çekme
   const fetchData = async () => {
@@ -122,6 +145,69 @@ export const EmployeeRegistration = () => {
     fetchData()
   }, [])
 
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const file = e.target.files?.[0];
+  if (!file) return;
+  
+  // Dosyanın uzantısını al
+  const ext = file.name.split('.').pop()?.toLowerCase() || '';
+  // İzinli uzantıları al (noktalardan temizle)
+  const allowedExts = (docAcceptMap[documentType] || '')
+    .split(',')
+    .map((a) => a.replace('.', '').toLowerCase());
+
+  if (!allowedExts.includes(ext)) {
+    // Hata: izinli değil
+    setFileError(`Lütfen ${allowedExts.map((e) => '.' + e).join(', ')} uzantılı dosya seçin.`);
+    setSelectedFile(null);
+    return;
+  }
+  const files = e.target.files
+    if (files && files.length > 0) {
+      const file = files[0]
+      setSelectedFile(file)
+
+      // tabloya ekle
+      setUploadedDocs(prev => [
+        ...prev,
+        {
+          id: prev.length + 1,         // No
+          type: documentType,          // Select’ten gelen tür
+          file,
+        },
+      ])
+    }
+  // Geçerli dosya
+  setFileError(null);
+  setSelectedFile(file);
+};
+
+// const handleDocumentTypeChange = (e: SelectChangeEvent<string>) => {
+//     setDocumentType(e.target.value)
+//   };
+
+
+
+  const handleUploadClick = () => {
+  // eğer evrak türü seçilmediyse
+  if (!documentType) {
+    setDocumentError(true);
+    return;             // buradan devam etme, file-picker'a geçme
+  }
+  // hata yoksa ancak bu satır çağrılacak
+  fileInputRef.current?.click();
+};
+
+const docAcceptMap: Record<string, string> = {
+  kimlik:   '.pdf',
+  adli:     '.pdf',
+  ozgecmis: '.pdf',
+  ehliyet:  '.pdf',
+  ikametgah: '.pdf',
+  fotograf: '.png,.jpg,.jpeg',
+  diger: '.pdf',
+};
+  
   // tablo kolonları
   const columns = useMemo<MRT_ColumnDef<Personel>[]>(
     () => [
@@ -649,6 +735,96 @@ export const EmployeeRegistration = () => {
                   <MenuItem value='İRFAN FAZLA'>İRFAN FAZLA</MenuItem>
                 </Select><FormHelperText>{errors.manager ? 'Zorunlu alan' : ''}</FormHelperText>
               </FormControl>
+              {/* Evrak Türü ve Dosya Yükleme - 2. Satır */}
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 2,width: '100%'}}>
+                <Box sx={{ width: 300 }}>
+                  <FormControl fullWidth error={documentError}>
+      <InputLabel id="doc-type-label">Evrak Türü</InputLabel>
+      <Select
+        labelId="doc-type-label"
+        value={documentType}
+        label="Evrak Türü"
+        onChange={(e) => {
+      setDocumentType(e.target.value);
+      if (e.target.value) setDocumentError(false);
+    }}
+      >
+        <MenuItem value="kimlik">Kimlik Bilgileri</MenuItem>
+        <MenuItem value="adli">Adli Sicil Soruşturma Kaydı</MenuItem>
+        <MenuItem value="ehliyet">Ehliyet Bilgileri</MenuItem>
+        <MenuItem value="ikametgah">İkametgah</MenuItem>
+        <MenuItem value="ozgecmis">Özgeçmiş</MenuItem>
+        <MenuItem value="fotograf">Fotoğraf</MenuItem>
+        <MenuItem value="diger">Diğer</MenuItem>
+      </Select>
+      {documentError && (
+    <FormHelperText>
+      Lütfen öncelikle Evrak Türü seçiniz.
+    </FormHelperText>
+  )}
+    </FormControl>
+             <Box sx={{ display: 'flex', alignItems: 'center', mt: 1 }}>
+      <input
+  type="file"
+  
+  ref={fileInputRef}
+  accept={docAcceptMap[documentType] || ''}
+  style={{ display: 'none' }}
+  onChange={handleFileChange}
+/>
+      <label htmlFor="document-upload">
+        <Button  startIcon={<AttachFileOutlinedIcon />} variant="outlined" component="span" onClick={handleUploadClick}>
+          Evrak Yükle
+        </Button>
+      </label>
+      {selectedFile && (
+        <Typography sx={{ ml: 1, overflow: 'hidden', textOverflow: 'ellipsis' }}>
+          {selectedFile.name}
+        </Typography>
+      )}
+    </Box>
+                </Box>
+              </Box>
+              <TableContainer component={Paper} sx={{ mt: 3 }}>
+        <Table size="small">
+          <TableHead>
+            <TableRow>
+              <TableCell>No</TableCell>
+              <TableCell>Evrak Türü</TableCell>
+              <TableCell>Görüntüle</TableCell>
+              <TableCell>Değiştir</TableCell>
+            </TableRow>
+          </TableHead>
+          <TableBody>
+            {uploadedDocs.map(doc => (
+              <TableRow key={doc.id}>
+                <TableCell>{doc.id}</TableCell>
+                <TableCell>{doc.type}</TableCell>
+                <TableCell>
+                  <Button
+                    size="small"
+                    onClick={() => window.open(URL.createObjectURL(doc.file))}
+                  >
+                    Görüntüle
+                  </Button>
+                </TableCell>
+                <TableCell>
+                  <Button
+                    size="small"
+                    onClick={() => {
+                      // Dosyayı yeniden yüklemek istersen
+                      setDocumentType(doc.type)
+                      fileInputRef.current?.click()
+                    }}
+                  >
+                    Değiştir
+                  </Button>
+                </TableCell>
+              </TableRow>
+            ))}
+          </TableBody>
+        </Table>
+      </TableContainer>
               {/* Kaydet Butonu */}
               <Box sx={{ width: '100%', textAlign: 'center', mt: 2 }}>
                 <Button type='submit' variant='contained' startIcon={<SaveOutlinedIcon/> } onClick={handleSubmit}>
@@ -656,7 +832,7 @@ export const EmployeeRegistration = () => {
                 </Button>
               </Box>
             </form>
-
+            
             {/* Tablo */}
             <Box sx={{ mt: 4 }}>  
               <MaterialReactTable table={table}/>
@@ -683,6 +859,15 @@ export const EmployeeRegistration = () => {
               </Button>
               </DialogActions>
             </Dialog>
+            <Dialog open={!!fileError} onClose={() => setFileError(null)}>
+  <DialogTitle>Geçersiz Dosya</DialogTitle>
+  <DialogContent>
+    <DialogContentText>{fileError}</DialogContentText>
+  </DialogContent>
+  <DialogActions>
+    <Button onClick={() => setFileError(null)}>Tamam</Button>
+  </DialogActions>
+</Dialog>
           </Grid>
         </Grid>
       </Box>
