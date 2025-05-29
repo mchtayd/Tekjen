@@ -20,6 +20,7 @@ import PersonRemoveAlt1Icon from '@mui/icons-material/PersonRemoveAlt1';
 import FileDownloadOutlinedIcon from '@mui/icons-material/FileDownloadOutlined';
 import AttachFileOutlinedIcon from '@mui/icons-material/AttachFileOutlined';
 import type { MRT_RowSelectionState } from 'material-react-table'
+import { useSnackbar } from 'notistack';
 import * as XLSX from 'xlsx';
 import { Dayjs } from 'dayjs';
 import dayjs from 'dayjs';
@@ -38,6 +39,12 @@ import { MaterialReactTable, useMaterialReactTable,
 } from 'material-react-table'
 
 dayjs.locale('tr'); 
+
+interface DocEntry {
+  typeValue: string;
+  label: string;
+  path: string;
+}
 
 // Personel tipi ve başlangıç objesi
 type Personel = {
@@ -58,7 +65,9 @@ type Personel = {
   title: string
   department: string
   manager: string
+  docs?: DocEntry[]
 }
+
 
 const initialPersonel: Personel = {
   id: 0,
@@ -79,14 +88,17 @@ const initialPersonel: Personel = {
   department: '',
   manager: '',
 }
-type UploadedDoc = {
+
+type DocRow = {
   id: number
-  type: string
+  type: string    // örn. "kimlik"
+  label: string   // örn. "Kimlik Bilgileri"
   file: File
 }
 
 export const EmployeeRegistration = () => {
   // form state & validation errors
+  const { enqueueSnackbar } = useSnackbar();
   const [post, setPost] = useState<Personel>(initialPersonel);
   const [errors, setErrors] = useState<Partial<Record<keyof Personel, boolean>>>({})
   const [data, setData] = useState<Personel[]>([])
@@ -103,8 +115,25 @@ export const EmployeeRegistration = () => {
   const [documentType, setDocumentType] = useState<string>('');
   const [documentError, setDocumentError] = useState(false);
   const [selectedFile, setSelectedFile] = useState<File | null>(null);
+  const [editingDocId, setEditingDocId] = useState<number | null>(null)
+  const [uploadedDocs, setUploadedDocs] = useState<DocRow[]>([])
+  const [missingDialogOpen, setMissingDialogOpen] = useState(false);
+  const [missingDocs, setMissingDocs] = useState<string>('');
 
-  const [uploadedDocs, setUploadedDocs] = useState<UploadedDoc[]>([])
+  const documentOptions = [
+  { value: 'kimlik',    label: 'Kimlik Bilgileri' },
+  { value: 'ehliyet',   label: 'Ehliyet Bilgileri' },
+  { value: 'adli',      label: 'Adli Sicil Soruşturma Kaydı' },
+  { value: 'mezuniyet',   label: 'Mezuniyet Belgesi' },
+  { value: 'ikametgah',  label: 'İkametgah Belgesi' },
+  { value: 'askerlik',  label: 'Askerlik Belgesi' },
+  { value: 'fotograf',  label: 'Fotoğraf' },
+  { value: 'diger',  label: 'Diğer' },
+]
+
+// const requiredTypes = documentOptions
+//   .filter((o) => o.value !== 'diger')
+//   .map((o) => o.value);
 
   //Başladııııığ
 
@@ -146,40 +175,56 @@ export const EmployeeRegistration = () => {
   }, [])
 
   const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
-  const file = e.target.files?.[0];
-  if (!file) return;
-  
-  // Dosyanın uzantısını al
-  const ext = file.name.split('.').pop()?.toLowerCase() || '';
-  // İzinli uzantıları al (noktalardan temizle)
-  const allowedExts = (docAcceptMap[documentType] || '')
+  const files = e.target.files;
+  if (!files?.length) return;
+  const file = files[0];
+
+  // 1) Uzantı kontrolü
+  const ext = file.name.split('.').pop()!.toLowerCase();
+  const allowed = (docAcceptMap[documentType] || '')
     .split(',')
     .map((a) => a.replace('.', '').toLowerCase());
-
-  if (!allowedExts.includes(ext)) {
-    // Hata: izinli değil
-    setFileError(`Lütfen ${allowedExts.map((e) => '.' + e).join(', ')} uzantılı dosya seçin.`);
+  if (!allowed.includes(ext)) {
+    setFileError(
+      `Lütfen ${allowed.map((x) => '.' + x).join(', ')} uzantılı dosya seçin.`
+    );
     setSelectedFile(null);
     return;
   }
-  const files = e.target.files
-    if (files && files.length > 0) {
-      const file = files[0]
-      setSelectedFile(file)
 
-      // tabloya ekle
-      setUploadedDocs(prev => [
-        ...prev,
-        {
-          id: prev.length + 1,         // No
-          type: documentType,          // Select’ten gelen tür
-          file,
-        },
-      ])
-    }
-  // Geçerli dosya
+  // Geçerli dosya: önce hata mesajını temizle
   setFileError(null);
   setSelectedFile(file);
+
+  // 2) Seçilen tipin label’ını bul
+  const opt = documentOptions.find((o) => o.value === documentType)!;
+
+  // 3) Ya ekle ya güncelle
+  if (editingDocId != null) {
+    // Güncelleme modu
+    setUploadedDocs((prev) =>
+      prev.map((doc) =>
+        doc.id === editingDocId
+          ? { ...doc, file, label: opt.label }
+          : doc
+      )
+    );
+    setEditingDocId(null);
+  } else {
+    // Yeni ekleme
+    const newRow: DocRow = {
+      id: uploadedDocs.length + 1,
+      type: documentType,
+      label: opt.label,
+      file,
+    };
+    setUploadedDocs((prev) => [...prev, newRow]);
+    setDocumentType('');
+    setDocumentError(false);
+  }
+
+  // Aynı input’dan tekrar seçmesi için value’yu sıfırla
+  e.target.value = '';
 };
 
 // const handleDocumentTypeChange = (e: SelectChangeEvent<string>) => {
@@ -195,18 +240,30 @@ export const EmployeeRegistration = () => {
     return;             // buradan devam etme, file-picker'a geçme
   }
   // hata yoksa ancak bu satır çağrılacak
-  fileInputRef.current?.click();
+  fileInputRef.current?.click()
+};
+
+const handleReplaceClick = (id: number, typeValue: string) => {
+  setEditingDocId(id);
+  // ① documentType’ı da güncelle
+  setDocumentType(typeValue);
+  // ② accept ayarını input’a yine de yaz
+  fileInputRef.current!.accept = docAcceptMap[typeValue];
+  fileInputRef.current!.click();
 };
 
 const docAcceptMap: Record<string, string> = {
   kimlik:   '.pdf',
-  adli:     '.pdf',
-  ozgecmis: '.pdf',
   ehliyet:  '.pdf',
+  adli:     '.pdf',
+  mezuniyet:'.pdf',
   ikametgah: '.pdf',
+  askerlik: '.pdf',
   fotograf: '.png,.jpg,.jpeg',
   diger: '.pdf',
 };
+
+
   
   // tablo kolonları
   const columns = useMemo<MRT_ColumnDef<Personel>[]>(
@@ -236,6 +293,7 @@ const docAcceptMap: Record<string, string> = {
       { accessorKey: 'title', header: 'Ünvan' },
       { accessorKey: 'department', header: 'Departman' },
       { accessorKey: 'manager', header: 'Yönetici' },
+      { accessorKey: 'docs', header: 'Dosya Yolu' },
     ],
     [],
   )
@@ -473,15 +531,17 @@ const docAcceptMap: Record<string, string> = {
   }
   // form submit
   const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    if (!validate()) return;
-    const normalizedPost: Personel = {
+  e.preventDefault();
+
+  // 1) Personel form validasyonu
+  if (!validate()) return;
+
+  const normalizedPost: Personel = {
     ...post,
     name:              post.name.trim().toLocaleUpperCase('tr'),
     tc:                post.tc.trim(),
     insuranceNo:       post.insuranceNo.trim(),
     birthPlace:        post.birthPlace.trim().toLocaleUpperCase('tr'),
-    // birthDate bir Dayjs objesi ise, doğrudan gönderiyoruz
     birthDate:         post.birthDate,
     sex:               post.sex.trim(),
     residenceAddress:  post.residenceAddress.trim(),
@@ -491,42 +551,87 @@ const docAcceptMap: Record<string, string> = {
     email:             post.email.trim(),
     phone:             post.phone.trim(),
     startDate:         post.startDate,
-    title:          post.title.trim().toLocaleUpperCase('tr'),
+    title:             post.title.trim().toLocaleUpperCase('tr'),
     department:        post.department.trim().toLocaleUpperCase('tr'),
     manager:           post.manager.trim().toLocaleUpperCase('tr'),
+    // ileride backend’in beklediği başka alanlar varsa onları da ekleyin
   };
-    try {
+
+  // 2) “Diğer” hariç tüm tipleri al
+  const requiredTypes = documentOptions
+    .filter((o) => o.value !== 'diger')
+    .map((o) => o.value);
+
+  // 3) Tabloya eklenen tiplerin listesi
+  const addedTypes = uploadedDocs.map((d) => d.type);
+
+  // 4) Eksikleri tespit et
+  const missing = requiredTypes.filter((t) => !addedTypes.includes(t));
+  if (missing.length > 0) {
+    // eksik varsa dialog’ı aç
+    setMissingDocs(
+      documentOptions
+        .filter((o) => missing.includes(o.value))
+        .map((o) => o.label)
+        .join(', ')
+    );
+    setMissingDialogOpen(false); // evrak kontrolü kapatıldı
+    //return;
+  }
+
+  // 5) Tüm evrak tamamsa önce FormData ile dosyaları yükle
+  try {
+    const fd = new FormData();
+    uploadedDocs.forEach((d, idx) => {
+      fd.append('files', d.file, d.file.name);
+      // metadata olarak tip ve label de ekleyelim
+      fd.append(`meta[${idx}][type]`, d.type);
+      fd.append(`meta[${idx}][label]`,   d.label);
+    });
+    // opsiyonel: personelId veya başka alanlar da ekleyebilirsiniz
+    fd.append('personelId', String(editingId ?? 0));
+
+    // dosyaları yükle, backend array<string> dönecek: ["uploads/kimlik.pdf", ...]
+    const { data: uploadedPaths } = await axios.post<string[]>(
+      'http://localhost:5000/api/upload-docs',
+      fd,
+      { headers: { 'Content-Type': 'multipart/form-data' } }
+    );
+
+    const docEntries: DocEntry[] = uploadedPaths.map((path, i) => ({
+      typeValue: uploadedDocs[i].type,
+      label:     uploadedDocs[i].label,
+      path,
+    }));
+
+    const personelPayload: Personel = {
+      ...normalizedPost,
+      docs: docEntries,
+    };
+
+    // 7) Kayıt veya güncelleme isteği
     if (isEditing && editingId != null) {
-      // 3a) Düzenleme modundaysak PUT ile güncelle
-      await axios.put(
-        `http://localhost:5000/api/data/${editingId}`,
-        normalizedPost,
-      );
+      await axios.put(`/api/data/${editingId}`, personelPayload);
+      enqueueSnackbar('Personel güncellendi!', { variant: 'success' });
     } else {
-      // 3b) Aksi hâlde POST ile yeni kayıt oluştur
-      await axios.post(
-        `http://localhost:5000/api/data`,
-        normalizedPost,
-      );
+      await axios.post(`/api/data`, personelPayload);
+      enqueueSnackbar('Personel oluşturuldu!',  { variant: 'success' });
     }
 
-    // 4) İşlem başarılıysa formu ve hata durumunu temizle
+    // 8) Temizle, yenile, vs.
     setPost(initialPersonel);
-    setErrors({});
-
-    // 5) Düzenleme flag’lerini sıfırla
+    setUploadedDocs([]);
     setIsEditing(false);
     setEditingId(null);
-
-    // 6) Eğer table instance’ına erişimin varsa, seçimi de sıfırla
-    table.resetRowSelection?.(); 
-
-    // 7) En son verileri tekrar çek (ve tabloyu yenile)
+    table.resetRowSelection?.();
     await fetchData();
+
   } catch (err) {
     console.error(err);
+    enqueueSnackbar('Bir hata oluştu!', { variant: 'error' });
   }
 };
+
 
   return (
     <div className='mainDiv'>
@@ -711,7 +816,7 @@ const docAcceptMap: Record<string, string> = {
                   label='Departman'
                   onChange={(e) => handleChange('department', e.target.value)}>
                   <MenuItem value=''><em>Seçiniz</em></MenuItem>
-                  <MenuItem value='YÖNETİN'>YÖNETİN</MenuItem>
+                  <MenuItem value='YÖNETİM'>YÖNETİM</MenuItem>
                   <MenuItem value='İNSAN KAYNAKLARI'>İNSAN KAYNAKLARI</MenuItem>
                   <MenuItem value='AR-GE'>AR-GE</MenuItem>
                   <MenuItem value='ÜRETİM'>ÜRETİM</MenuItem>
@@ -741,22 +846,33 @@ const docAcceptMap: Record<string, string> = {
                   <FormControl fullWidth error={documentError}>
       <InputLabel id="doc-type-label">Evrak Türü</InputLabel>
       <Select
-        labelId="doc-type-label"
-        value={documentType}
-        label="Evrak Türü"
-        onChange={(e) => {
-      setDocumentType(e.target.value);
-      if (e.target.value) setDocumentError(false);
+    labelId="doc-type-label"
+    id="document-type"
+    value={documentType}
+    label="Evrak Türü"
+    onChange={(e) => {
+      setDocumentType(e.target.value)
+      if (e.target.value) setDocumentError(false)
     }}
-      >
-        <MenuItem value="kimlik">Kimlik Bilgileri</MenuItem>
-        <MenuItem value="adli">Adli Sicil Soruşturma Kaydı</MenuItem>
-        <MenuItem value="ehliyet">Ehliyet Bilgileri</MenuItem>
-        <MenuItem value="ikametgah">İkametgah</MenuItem>
-        <MenuItem value="ozgecmis">Özgeçmiş</MenuItem>
-        <MenuItem value="fotograf">Fotoğraf</MenuItem>
-        <MenuItem value="diger">Diğer</MenuItem>
-      </Select>
+  >
+    {documentOptions.map((opt) => {
+      // tabloya ekli mi?
+      const alreadyAdded = uploadedDocs.some(
+        (doc) => doc.type === opt.value
+      )
+      // sadece 'diger' her zaman aktif kalsın
+      const alwaysActive = opt.value === 'diger'
+      return (
+        <MenuItem
+          key={opt.value}
+          value={opt.value}
+          disabled={alreadyAdded && !alwaysActive}
+        >
+          {opt.label}
+        </MenuItem>
+      )
+    })}
+  </Select>
       {documentError && (
     <FormHelperText>
       Lütfen öncelikle Evrak Türü seçiniz.
@@ -785,8 +901,8 @@ const docAcceptMap: Record<string, string> = {
     </Box>
                 </Box>
               </Box>
-              <TableContainer component={Paper} sx={{ mt: 3 }}>
-        <Table size="small">
+              <TableContainer component={Paper} sx={{ mt: 3, width: 400, maxWidth: '100%', overflowX: 'auto'}} >
+        <Table size="small" aria-label="uploaded docs table">
           <TableHead>
             <TableRow>
               <TableCell>No</TableCell>
@@ -796,33 +912,32 @@ const docAcceptMap: Record<string, string> = {
             </TableRow>
           </TableHead>
           <TableBody>
-            {uploadedDocs.map(doc => (
-              <TableRow key={doc.id}>
-                <TableCell>{doc.id}</TableCell>
-                <TableCell>{doc.type}</TableCell>
-                <TableCell>
-                  <Button
-                    size="small"
-                    onClick={() => window.open(URL.createObjectURL(doc.file))}
-                  >
-                    Görüntüle
-                  </Button>
-                </TableCell>
-                <TableCell>
-                  <Button
-                    size="small"
-                    onClick={() => {
-                      // Dosyayı yeniden yüklemek istersen
-                      setDocumentType(doc.type)
-                      fileInputRef.current?.click()
-                    }}
-                  >
-                    Değiştir
-                  </Button>
-                </TableCell>
-              </TableRow>
-            ))}
-          </TableBody>
+      {uploadedDocs.map((doc) => (
+        <TableRow key={doc.id}>
+          <TableCell sx={{ p: 0.5 }}>{doc.id}</TableCell>
+          {/* Burada artık value değil, label gösteriyoruz */}
+          <TableCell sx={{ p: 0.5 }}>{doc.label}</TableCell>
+          <TableCell sx={{ p: 0.5 }}>
+            <Button
+              size="small"
+              onClick={() => {
+                // değiştirirken aynı label/value çiftini yeniden kullanabilirsiniz
+                window.open(URL.createObjectURL(doc.file), '_blank')
+              }}
+            >
+              Görüntüle
+            </Button>
+          </TableCell>
+          <TableCell sx={{ p: 0.5 }}>
+            <Button
+              size="small"
+              onClick={() => handleReplaceClick(doc.id, doc.type)}>
+              DEĞİŞTİR
+            </Button>
+          </TableCell>
+        </TableRow>
+      ))}
+    </TableBody>
         </Table>
       </TableContainer>
               {/* Kaydet Butonu */}
@@ -830,9 +945,23 @@ const docAcceptMap: Record<string, string> = {
                 <Button type='submit' variant='contained' startIcon={<SaveOutlinedIcon/> } onClick={handleSubmit}>
                   Kaydet
                 </Button>
-              </Box>
-            </form>
-            
+                {/* Eksik evrak dialogu */}
+                <Dialog
+                  open={missingDialogOpen}
+                  onClose={() => setMissingDialogOpen(false)}
+                  >
+                    <DialogTitle>Eksik Evrak</DialogTitle>
+                    <DialogContent>
+                      <DialogContentText>
+                        Lütfen önce şu evrakları ekleyin: <b>{missingDocs}</b>
+                        </DialogContentText>
+                        </DialogContent>
+                        <DialogActions>
+                          <Button onClick={() => setMissingDialogOpen(false)}>Tamam</Button>
+                          </DialogActions>
+                          </Dialog>
+                          </Box>
+                          </form>
             {/* Tablo */}
             <Box sx={{ mt: 4 }}>  
               <MaterialReactTable table={table}/>
@@ -860,14 +989,14 @@ const docAcceptMap: Record<string, string> = {
               </DialogActions>
             </Dialog>
             <Dialog open={!!fileError} onClose={() => setFileError(null)}>
-  <DialogTitle>Geçersiz Dosya</DialogTitle>
-  <DialogContent>
-    <DialogContentText>{fileError}</DialogContentText>
-  </DialogContent>
-  <DialogActions>
-    <Button onClick={() => setFileError(null)}>Tamam</Button>
-  </DialogActions>
-</Dialog>
+              <DialogTitle>Geçersiz Dosya</DialogTitle>
+              <DialogContent>
+                <DialogContentText>{fileError}</DialogContentText>
+              </DialogContent>
+              <DialogActions>
+                <Button onClick={() => setFileError(null)}>Tamam</Button>
+              </DialogActions>
+            </Dialog>
           </Grid>
         </Grid>
       </Box>
